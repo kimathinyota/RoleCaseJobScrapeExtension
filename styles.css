@@ -1,0 +1,46 @@
+body {
+  font-family: Inter, sans-serif;
+  width: 280px;
+  padding: 16px;
+  background: #ffffff;
+}
+
+h2 {
+  margin-top: 0;
+  font-size: 18px;
+}
+
+button {
+  width: 100%;
+  padding: 10px;
+  background: #4F46E5;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  margin-top: 10px;
+}
+
+button.secondary {
+  background: #E5E7EB;
+  color: #111;
+}
+
+#outputContainer {
+  margin-top: 14px;
+}
+
+#output {
+  white-space: pre-wrap;
+  padding: 10px;
+  background: #F3F4F6;
+  border-radius: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+
+.hidden {
+  display: none;
+}
