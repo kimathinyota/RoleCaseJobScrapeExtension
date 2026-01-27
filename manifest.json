@@ -1,18 +1,20 @@
 {
   "manifest_version": 3,
   "name": "Job Scraper Pro 2025",
-  "version": "2.0",
-  "description": "Smart job extractor for all major job boards.",
+  "version": "2.1",
+  "description": "Background queuing and parsing for job applications.",
   "permissions": ["activeTab", "scripting", "storage"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
     "default_popup": "popup.html"
   },
   "content_scripts": [
-  {
-    "matches": ["*://*.indeed.com/*"],
-    "js": ["scrape.js"],
-    "run_at": "document_idle"
-  }
-]
-
+    {
+      "matches": ["*://*.indeed.com/*", "*://*.linkedin.com/*"],
+      "js": ["scrape.js"],
+      "run_at": "document_idle"
+    }
+  ]
 }

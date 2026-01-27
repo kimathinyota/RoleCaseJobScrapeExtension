@@ -1,29 +1,226 @@
-document.getElementById("extract").addEventListener("click", async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+const API_UPSERT = "http://localhost:8000/job/upsert"; // Adjust to your backend URL
 
-  chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    files: ["scrape.js"]
+document.addEventListener("DOMContentLoaded", () => {
+  renderQueue();
+  
+  // 1. LISTEN FOR STORAGE UPDATES
+  // This automatically refreshes the UI when the background script
+  // receives the parsed data from your API.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.job_queue) {
+      renderQueue();
+    }
+  });
+
+  // 2. SCRAPE BUTTON ACTION (The "Trigger")
+  document.getElementById("scrapeBtn").addEventListener("click", async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    
+    if (tab) {
+      // Execute the scraper on the page
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ["scrape.js"]
+      });
+      
+      // We don't need to do anything else here. 
+      // scrape.js will send a message to background.js
+      // background.js will add the job to storage with "parsing" status
+      // storage.onChanged (above) will detect that and update the list.
+    }
+  });
+
+  // Clear Queue Action
+  document.getElementById("clearBtn").addEventListener("click", () => {
+    if(confirm("Clear all jobs from queue?")) {
+      chrome.storage.local.set({ job_queue: {} });
+    }
+  });
+  
+  // Add new feature row manually
+  document.getElementById("addFeatureBtn").addEventListener("click", () => {
+    addFeatureRow({ type: 'responsibility', description: '' });
   });
 });
 
-chrome.runtime.onMessage.addListener((data) => {
-  const output = document.getElementById("output");
-  const container = document.getElementById("outputContainer");
+/* ---------------------------------------------------------
+   RENDER LOGIC (INBOX VIEW)
+--------------------------------------------------------- */
+function renderQueue() {
+  const container = document.getElementById("queueContainer");
+  
+  chrome.storage.local.get(["job_queue"], (result) => {
+    const queue = result.job_queue || {};
+    // Sort by newest first
+    const jobs = Object.values(queue).sort((a, b) => b.created_at - a.created_at);
 
-  container.classList.remove("hidden");
-  output.textContent = JSON.stringify(data, null, 2);
+    container.innerHTML = "";
+    
+    if (jobs.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state">
+          No jobs in queue.<br>Open a job description and click Scrape!
+        </div>`;
+      return;
+    }
 
-  // Save to local storage
-  chrome.storage.local.get(["jobs"], (res) => {
-    const jobs = res.jobs || [];
-    jobs.push(data);
-    chrome.storage.local.set({ jobs });
+    jobs.forEach(job => {
+      const card = document.createElement("div");
+      
+      // Determine styling based on status
+      let statusClass = job.status; 
+      // Simplify status for CSS
+      if(job.status === 'parsing') statusClass = 'parsing';
+      if(job.status === 'review') statusClass = 'review';
+      
+      card.className = `job-card ${statusClass}`;
+      
+      let statusLabel = "";
+      if (job.status === "parsing") statusLabel = "⚡ Parsing...";
+      if (job.status === "review") statusLabel = "✅ Ready to Review";
+      if (job.status === "error") statusLabel = "❌ Error";
+      if (job.status === "saved") statusLabel = "💾 Saved";
+
+      const company = job.parsed_result?.company || job.scraped_meta?.company || "Unknown Company";
+      const title = job.parsed_result?.title || job.scraped_meta?.title || "No Title";
+
+      card.innerHTML = `
+        <div class="card-header">
+          <span>${company}</span>
+          <span style="font-size:10px; opacity:0.8">${statusLabel}</span>
+        </div>
+        <div class="card-title">${title}</div>
+        <div class="card-time">${new Date(job.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+      `;
+
+      // Click handler: Only open editor if ready
+      if (job.status === "review") {
+        card.addEventListener("click", () => openEditor(job));
+      } else if (job.status === "error") {
+        card.addEventListener("click", () => alert("Error: " + job.error_msg));
+      }
+
+      container.appendChild(card);
+    });
   });
-});
+}
 
-document.getElementById("copy").addEventListener("click", () => {
-  const text = document.getElementById("output").textContent;
-  navigator.clipboard.writeText(text);
-  alert("Copied to clipboard!");
-});
+/* ---------------------------------------------------------
+   EDITOR LOGIC (FORM VIEW)
+--------------------------------------------------------- */
+function openEditor(job) {
+  document.getElementById("queueContainer").classList.add("hidden");
+  document.getElementById("editorContainer").classList.remove("hidden");
+  // Hide main header buttons in edit mode
+  document.querySelector(".header-top").classList.add("hidden");
+  document.getElementById("scrapeBtn").classList.add("hidden");
+  
+  const data = job.parsed_result;
+  
+  // Populate Fields
+  document.getElementById("editTitle").value = data.title || "";
+  document.getElementById("editCompany").value = data.company || "";
+  document.getElementById("editLocation").value = data.location || "";
+  document.getElementById("editSalary").value = data.salary_range || "";
+  document.getElementById("editUrl").value = data.job_url || "";
+  
+  // Render Features
+  const featureList = document.getElementById("featureList");
+  featureList.innerHTML = "";
+  
+  if (data.features && data.features.length > 0) {
+    data.features.forEach(feat => addFeatureRow(feat));
+  }
+
+  // --- SAVE HANDLER ---
+  const saveBtn = document.getElementById("saveJobBtn");
+  // Clone to remove old event listeners
+  const newSaveBtn = saveBtn.cloneNode(true);
+  saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
+  
+  newSaveBtn.onclick = async () => {
+    newSaveBtn.textContent = "Saving...";
+    newSaveBtn.disabled = true;
+    try {
+      await sendToBackend(job.id);
+      newSaveBtn.textContent = "Saved!";
+      setTimeout(closeEditor, 1000);
+    } catch (e) {
+      alert("Error saving: " + e.message);
+      newSaveBtn.textContent = "Save to Platform";
+      newSaveBtn.disabled = false;
+    }
+  };
+
+  // --- BACK HANDLER ---
+  document.getElementById("backBtn").onclick = closeEditor;
+}
+
+function closeEditor() {
+  document.getElementById("editorContainer").classList.add("hidden");
+  document.getElementById("queueContainer").classList.remove("hidden");
+  document.querySelector(".header-top").classList.remove("hidden");
+  document.getElementById("scrapeBtn").classList.remove("hidden");
+}
+
+function addFeatureRow(feat) {
+  const featureList = document.getElementById("featureList");
+  const row = document.createElement("div");
+  row.className = "feature-row";
+  row.innerHTML = `
+    <select class="feat-type">
+      <option value="hard_skill" ${feat.type === 'hard_skill' ? 'selected' : ''}>Skill</option>
+      <option value="responsibility" ${feat.type === 'responsibility' ? 'selected' : ''}>Resp.</option>
+      <option value="qualification" ${feat.type === 'qualification' ? 'selected' : ''}>Qual.</option>
+      <option value="benefit" ${feat.type === 'benefit' ? 'selected' : ''}>Ben.</option>
+    </select>
+    <input type="text" class="feat-desc" value="${(feat.description || '').replace(/"/g, '&quot;')}" />
+    <button class="remove-feat">×</button>
+  `;
+  
+  row.querySelector(".remove-feat").addEventListener("click", () => row.remove());
+  featureList.appendChild(row);
+}
+
+/* ---------------------------------------------------------
+   API COMMUNICATION
+--------------------------------------------------------- */
+async function sendToBackend(jobId) {
+  // 1. Construct Payload matching JobUpsertPayload in models.py
+  const payload = {
+    title: document.getElementById("editTitle").value,
+    company: document.getElementById("editCompany").value,
+    location: document.getElementById("editLocation").value,
+    salary_range: document.getElementById("editSalary").value,
+    job_url: document.getElementById("editUrl").value,
+    features: []
+  };
+
+  document.querySelectorAll(".feature-row").forEach(row => {
+    const desc = row.querySelector(".feat-desc").value.trim();
+    if (desc) {
+      payload.features.push({
+        type: row.querySelector(".feat-type").value,
+        description: desc
+      });
+    }
+  });
+
+  // 2. Send to /upsert
+  const res = await fetch(API_UPSERT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+
+  if (!res.ok) throw new Error("Failed to save to platform");
+
+  // 3. Mark as saved locally
+  chrome.storage.local.get(["job_queue"], (result) => {
+    const queue = result.job_queue;
+    if (queue[jobId]) {
+      queue[jobId].status = "saved";
+      chrome.storage.local.set({ job_queue: queue });
+    }
+  });
+}

@@ -1,3 +1,6 @@
+/* ------------------------------------------------
+   HELPER FUNCTIONS (Scraping Logic)
+------------------------------------------------ */
 function pick(selectors, root = document) {
   for (const s of selectors) {
     const el = root.querySelector(s);
@@ -6,237 +9,146 @@ function pick(selectors, root = document) {
   return "";
 }
 
-function pickHTML(selectors, root = document) {
-  for (const s of selectors) {
-    const el = root.querySelector(s);
-    if (el) return el.innerHTML.trim();
-  }
-  return "";
-}
-
 function detectSite() {
   const host = location.hostname;
-
   if (host.includes("indeed")) return "indeed";
   if (host.includes("linkedin")) return "linkedin";
   if (host.includes("lever")) return "lever";
   if (host.includes("greenhouse")) return "greenhouse";
-
   return "generic";
 }
 
+/* ------------------------------------------------
+   SITE SPECIFIC SCRAPERS
+------------------------------------------------ */
 function scrapeIndeed() {
-  // Always anchor to the RIGHT JOB PANE
-  const pane =
-    document.querySelector("#jobsearch-ViewjobPaneWrapper") ||
-    document.querySelector("#viewJobBody") ||
-    document;
+  const pane = document.querySelector("#jobsearch-ViewjobPaneWrapper") || 
+               document.querySelector("#viewJobBody") || 
+               document;
 
-  /* -----------------------------
-      1. TITLE
-  ----------------------------- */
-  const title = pick(
-    [
-      "h1",
-      "h1.jobsearch-JobInfoHeader-title",
-      "h1.jobsearch-JobTitle",
-      "h1.css-1b4cr5z" // new style A/B tests
-    ],
-    pane
-  );
+  const title = pick(["h1", "h1.jobsearch-JobInfoHeader-title"], pane);
+  const company = pick([".jobsearch-CompanyInfoWithoutHeaderImage div:first-child", "div[data-company-name]"], pane);
+  const location = pick([".companyLocation", "div[data-testid='inlineHeader-companyLocation']"], pane);
+  const description = pick(["#jobDescriptionText", ".jobsearch-jobDescriptionText"], pane);
 
-  /* -----------------------------
-      2. COMPANY
-  ----------------------------- */
-  const company = pick(
-    [
-      ".jobsearch-CompanyInfoWithoutHeaderImage div:first-child",
-      ".jobsearch-InlineCompanyRating div:first-child",
-      ".css-1c2ahsm.e1wnkr790",
-      "div[data-company-name]",
-      ".companyName",
-      "a[data-testid='company-name']"
-    ],
-    pane
-  );
-
-  /* -----------------------------
-      3. LOCATION
-  ----------------------------- */
-  const location = pick(
-    [
-      ".companyLocation",
-      "div[data-testid='inlineHeader-companyLocation']",
-      "div[data-testid='text-location']",
-      ".jobsearch-CompanyInfoWithoutHeaderImage span:last-child",
-      ".css-6z8o9s.eu4oa1w0"
-    ],
-    pane
-  );
-
-  /* -----------------------------
-      4. JOB DESCRIPTION
-  ----------------------------- */
-  const description = pick(
-    [
-      "#jobDescriptionText",
-      ".jobsearch-jobDescriptionText",
-      "div#jobDescription",
-      "div[data-testid='jobDetailsSection']"
-    ],
-    pane
-  );
-
-  /* -----------------------------
-      5. JOB DETAILS (Pay, Job type, etc.)
-  ----------------------------- */
-
-  // Object to fill
-  const details = {};
-
-  // Job details section appears in many formats
-  const detailSections = pane.querySelectorAll(
-    "div[data-testid='job-details'], " +
-      "div[id='jobDetailsSection'], " +
-      "section.job-details, " +
-      "div.css-1p0sjhy.e1wnkr790"
-  );
-
-  detailSections.forEach((section) => {
-    // Labels like: Pay, Job Type, Shift & Schedule, Benefits, etc.
-    const rows = section.querySelectorAll("div");
-
-    rows.forEach((row) => {
-      const label = row.querySelector("h3, h2, span[role='heading']");
-      const value = row.querySelector("ul, span, div:not(:has(h3)):not(:has(h2))");
-
-      if (label && value) {
-        const key = label.innerText.trim();
-        const val = value.innerText.trim();
-        if (key && val) details[key] = val;
-      }
-    });
-  });
-
-  /* -----------------------------
-      6. URL (use active job card ID if possible)
-  ----------------------------- */
   let url = location.href;
-
-  const activeCard =
-    document.querySelector(".job_seen_beacon a[data-jk]") ||
-    document.querySelector("a.tapItem--job");
-
+  const activeCard = document.querySelector(".job_seen_beacon a[data-jk]");
   if (activeCard?.href) url = activeCard.href;
 
-  /* -----------------------------
-      FINAL RETURN
-  ----------------------------- */
-  return {
-    url,
-    title,
-    company,
-    location,
-    description,
-    details // { Pay: “…”, Job type: “…”, Shift & schedule: “…”, Benefits: “…” }
-  };
+  return { title, company, location, description, url };
 }
 
 function scrapeLinkedIn() {
   return {
     url: location.href,
     title: pick(["h1.top-card-layout__title", "h1"]),
-    company: pick([
-      "a.topcard__org-name-link",
-      "span.topcard__flavor:nth-child(2)",
-    ]),
-    description: pick(["div.show-more-less-html__markup"]),
-  };
-}
-
-function scrapeLever() {
-  return {
-    url: location.href,
-    title: pick(["h2.posting-headline"]),
-    company: pick(["div.posting-categories span"]),
-    description: pick(["div.posting-description"]),
-  };
-}
-
-function scrapeGreenhouse() {
-  return {
-    url: location.href,
-    title: pick(["h1.app-title"]),
-    company: pick(["div.company-name", ".employer"]),
-    description: pick(["div#content", "div.job-description"]),
+    company: pick(["a.topcard__org-name-link", "span.topcard__flavor:nth-child(2)"]),
+    description: pick(["div.show-more-less-html__markup", ".description__text"]),
+    location: pick(["span.topcard__flavor--bullet"])
   };
 }
 
 function scrapeGeneric() {
   return {
     url: location.href,
-    title: pick(["h1", "header h1"]),
-    company: pick([".company", "[class*=company]"]),
-    description: pick([".description", "section", "article"]),
+    title: pick(["h1"]),
+    company: pick([".company"]),
+    description: pick(["article", "main", "body"]),
+    location: ""
   };
 }
 
-/* ------------------------------
-   SCRAPE WRAPPER (AUTO + MANUAL)
---------------------------------*/
+// ... (You can keep scrapeLever/Greenhouse here if you wish) ...
+
+/* ------------------------------------------------
+   MAIN SENDER LOGIC
+------------------------------------------------ */
 function scrapeAndSend() {
   const site = detectSite();
+  let scraped = {};
 
-  const scraped =
-    site === "indeed"
-      ? scrapeIndeed()
-      : site === "linkedin"
-      ? scrapeLinkedIn()
-      : site === "lever"
-      ? scrapeLever()
-      : site === "greenhouse"
-      ? scrapeGreenhouse()
-      : scrapeGeneric();
+  try {
+    if (site === "indeed") scraped = scrapeIndeed();
+    else if (site === "linkedin") scraped = scrapeLinkedIn();
+    else scraped = scrapeGeneric();
+  } catch (e) {
+    console.error("Scraping error:", e);
+    alert("Could not scrape this page structure.");
+    return;
+  }
 
-  chrome.runtime.sendMessage(scraped);
+  // Validate
+  if (!scraped.description && !scraped.title) {
+    console.warn("Scraper found no data.");
+    return;
+  }
 
-  // Show overlay UI
-  const overlay = document.getElementById("jobScraperOverlay") || document.createElement("div");
+  // 1. Send to Background Script
+  try {
+    chrome.runtime.sendMessage({ 
+      type: "JOB_SCRAPED", 
+      data: scraped 
+    });
+  } catch (error) {
+    console.error("Extension connection lost:", error);
+    alert("Please refresh the page to reconnect the extension.");
+    return;
+  }
+
+  // 2. Show Visual Feedback
+  showOverlay();
+}
+
+/* ------------------------------------------------
+   OVERLAY FUNCTION (The Missing Piece)
+------------------------------------------------ */
+function showOverlay() {
+  const existing = document.getElementById("jobScraperOverlay");
+  if (existing) existing.remove();
+
+  const overlay = document.createElement("div");
   overlay.id = "jobScraperOverlay";
-  overlay.textContent = "Job Scraped!";
-  overlay.style.position = "fixed";
-  overlay.style.bottom = "20px";
-  overlay.style.right = "20px";
-  overlay.style.background = "#111";
-  overlay.style.color = "white";
-  overlay.style.padding = "8px 14px";
-  overlay.style.borderRadius = "8px";
-  overlay.style.zIndex = "99999";
+  overlay.textContent = "Job Queued for Parsing!";
+  
+  // Styles for the toast notification
+  Object.assign(overlay.style, {
+    position: "fixed",
+    bottom: "20px",
+    right: "20px",
+    background: "#27ae60",
+    color: "white",
+    padding: "12px 20px",
+    borderRadius: "8px",
+    zIndex: "999999",
+    boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+    fontFamily: "sans-serif",
+    fontSize: "14px",
+    fontWeight: "bold",
+    animation: "fadeIn 0.3s ease-out"
+  });
+
   document.body.appendChild(overlay);
 
-  setTimeout(() => overlay.remove(), 2000); // fadeout
+  setTimeout(() => {
+    overlay.style.opacity = "0";
+    overlay.style.transition = "opacity 0.5s";
+    setTimeout(() => overlay.remove(), 500);
+  }, 2500);
 }
 
-/* ------------------------------
-   MUTATION OBSERVER FOR INDEED
---------------------------------*/
+/* ------------------------------------------------
+   LISTENERS
+------------------------------------------------ */
+// Allow manual triggering from console or other scripts
+window.scrapeAndSend = scrapeAndSend;
+
+// Auto-detect Indeed pane changes (optional)
 if (location.hostname.includes("indeed.com")) {
   const observer = new MutationObserver(() => {
-    // Detect if right pane job content changed
-    const paneTitle = document.querySelector(
-      "#jobsearch-ViewjobPaneWrapper h1, #viewJobBody h1"
-    );
-
-    if (paneTitle) {
-      scrapeAndSend();
-    }
+    // Logic to auto-button injection could go here
   });
-
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true,
-  });
+  observer.observe(document.body, { childList: true, subtree: true });
 }
 
-// Allow manual popup trigger also
+// Immediately run when injected
 scrapeAndSend();

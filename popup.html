@@ -1,16 +1,127 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <link rel="stylesheet" href="styles.css">
+  <style>
+    body { width: 360px; height: 550px; padding: 0; margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f4f6f8; }
+    
+    /* Header & Scrape Action */
+    .header { background: #1a202c; color: #fff; padding: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: 0.5px; }
+    #clearBtn { background: transparent; border: 1px solid #4a5568; color: #a0aec0; cursor: pointer; font-size: 11px; padding: 4px 8px; border-radius: 4px; transition: all 0.2s; }
+    #clearBtn:hover { border-color: #cbd5e0; color: #fff; }
+
+    /* THE SCRAPE BUTTON */
+    #scrapeBtn { 
+      width: 100%; 
+      background: #3182ce; 
+      color: white; 
+      border: none; 
+      padding: 10px; 
+      border-radius: 6px; 
+      cursor: pointer; 
+      font-weight: 600; 
+      font-size: 14px;
+      display: flex; 
+      align-items: center; 
+      justify-content: center; 
+      gap: 8px;
+      transition: background 0.2s;
+    }
+    #scrapeBtn:hover { background: #2b6cb0; }
+    #scrapeBtn:active { transform: translateY(1px); }
+
+    /* Queue List */
+    #queueContainer { padding: 12px; overflow-y: auto; height: 420px; }
+    .empty-state { text-align: center; color: #718096; font-size: 13px; margin-top: 40px; }
+    
+    .job-card { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 10px; cursor: pointer; transition: all 0.2s; position: relative; }
+    .job-card:hover { transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.05); border-color: #cbd5e0; }
+    
+    /* Status Indicators */
+    .job-card.parsing { border-left: 4px solid #ecc94b; } /* Yellow */
+    .job-card.review { border-left: 4px solid #48bb78; }  /* Green */
+    .job-card.saved { border-left: 4px solid #cbd5e0; opacity: 0.7; }
+    .job-card.error { border-left: 4px solid #f56565; }
+
+    .card-header { display: flex; justify-content: space-between; font-size: 11px; color: #718096; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+    .card-title { font-weight: 700; font-size: 14px; margin-bottom: 4px; color: #2d3748; }
+    .card-time { font-size: 11px; color: #a0aec0; text-align: right; }
+
+    /* Editor */
+    .hidden { display: none !important; }
+    #editorContainer { padding: 16px; height: 500px; overflow-y: auto; background: white; }
+    .editor-header { border-bottom: 1px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 16px; }
+    .form-group { margin-bottom: 12px; }
+    label { display: block; font-size: 11px; font-weight: 600; color: #4a5568; margin-bottom: 4px; text-transform: uppercase; }
+    input { width: 100%; padding: 8px; border: 1px solid #cbd5e0; border-radius: 5px; box-sizing: border-box; font-size: 13px; transition: border 0.2s; }
+    input:focus { border-color: #3182ce; outline: none; }
+    
+    /* Features List */
+    .feature-list-label { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; margin-bottom: 8px; }
+    .feature-row { display: flex; gap: 6px; margin-bottom: 6px; align-items: center; }
+    .feat-type { width: 90px; font-size: 11px; padding: 6px; border: 1px solid #cbd5e0; border-radius: 4px; background: #f7fafc; }
+    .feat-desc { flex-grow: 1; font-size: 12px; padding: 6px; }
+    .remove-feat { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: #fff5f5; color: #c53030; border: 1px solid #feb2b2; border-radius: 4px; cursor: pointer; font-size: 14px; }
+    .remove-feat:hover { background: #c53030; color: white; border-color: #c53030; }
+
+    /* Actions */
+    .actions { display: flex; gap: 10px; margin-top: 20px; padding-top: 20px; border-top: 1px solid #e2e8f0; }
+    button.primary { flex: 1; background: #48bb78; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; }
+    button.primary:hover { background: #38a169; }
+    button.secondary { background: #e2e8f0; color: #4a5568; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; }
+    button.secondary:hover { background: #cbd5e0; }
+    
+    button:disabled { opacity: 0.7; cursor: not-allowed; }
+  </style>
 </head>
 <body>
-  <h2>Job Scraper Pro</h2>
 
-  <button id="extract">Extract Job Info</button>
+  <div class="header">
+    <div class="header-top">
+      <h2>Job Queue</h2>
+      <button id="clearBtn">Clear All</button>
+    </div>
+    <button id="scrapeBtn"> Scrape This Page </button>
+  </div>
 
-  <div id="outputContainer" class="hidden">
-    <button id="copy" class="secondary">Copy JSON</button>
-    <pre id="output"></pre>
+  <div id="queueContainer">
+    </div>
+
+  <div id="editorContainer" class="hidden">
+    <div class="editor-header">
+      <h3 style="margin:0; font-size:16px;">Edit Job</h3>
+    </div>
+
+    <div class="form-group">
+      <label>Company</label>
+      <input type="text" id="editCompany">
+    </div>
+    <div class="form-group">
+      <label>Title</label>
+      <input type="text" id="editTitle">
+    </div>
+    <div class="form-group">
+      <label>Location</label>
+      <input type="text" id="editLocation">
+    </div>
+    <div class="form-group">
+      <label>Salary</label>
+      <input type="text" id="editSalary">
+    </div>
+    <input type="hidden" id="editUrl">
+
+    <div class="feature-list-label">
+      <label style="margin:0">Extracted Features</label>
+      <small style="color:#a0aec0">Check Types & Content</small>
+    </div>
+    <div id="featureList"></div>
+    <button id="addFeatureBtn" style="width:100%; margin-top:8px; padding:6px; background:#edf2f7; border:1px dashed #cbd5e0; border-radius:4px; color:#718096; font-size:11px; cursor:pointer;">+ Add Feature</button>
+
+    <div class="actions">
+      <button id="backBtn" class="secondary">Cancel</button>
+      <button id="saveJobBtn" class="primary">Save to Platform</button>
+    </div>
   </div>
 
   <script src="popup.js"></script>
