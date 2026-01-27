@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Job Scraper Pro 2025",
+  "version": "2.0",
+  "description": "Smart job extractor for all major job boards.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+  {
+    "matches": ["*://*.indeed.com/*"],
+    "js": ["scrape.js"],
+    "run_at": "document_idle"
+  }
+]
+
+}
