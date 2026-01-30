@@ -144,5 +144,10 @@ if (location.hostname.includes("indeed.com")) {
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
-// // Immediately run when injected
-scrapeAndSend();
+// 2. ADD this listener:
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "TRIGGER_SCRAPE") {
+    console.log("Scrape triggered via popup button");
+    scrapeAndSend();
+  }
+});
