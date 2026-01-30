@@ -1,4 +1,4 @@
-const API_UPSERT = "http://localhost:8000/job/upsert"; // Adjust to your backend URL
+const API_UPSERT = "http://localhost:8000/api/job/upsert"; // Adjust to your backend URL
 
 document.addEventListener("DOMContentLoaded", () => {
   renderQueue();
@@ -13,20 +13,27 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // 2. SCRAPE BUTTON ACTION (The "Trigger")
+// 2. SCRAPE BUTTON ACTION (Updated)
   document.getElementById("scrapeBtn").addEventListener("click", async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     
     if (tab) {
-      // Execute the scraper on the page
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ["scrape.js"]
-      });
-      
-      // We don't need to do anything else here. 
-      // scrape.js will send a message to background.js
-      // background.js will add the job to storage with "parsing" status
-      // storage.onChanged (above) will detect that and update the list.
+      try {
+        // Try sending a message first (cleanest way)
+        await chrome.tabs.sendMessage(tab.id, { action: "TRIGGER_SCRAPE" });
+      } catch (e) {
+        // If message fails, the script might not be injected yet. Inject it now.
+        console.log("Script not ready, injecting...", e);
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ["scrape.js"]
+        });
+        
+        // Wait 100ms for script to load, then trigger
+        setTimeout(() => {
+          chrome.tabs.sendMessage(tab.id, { action: "TRIGGER_SCRAPE" });
+        }, 100);
+      }
     }
   });
 
@@ -163,16 +170,42 @@ function closeEditor() {
   document.getElementById("scrapeBtn").classList.remove("hidden");
 }
 
+/* ---------------------------------------------------------
+   HELPER: FEATURE ROW GENERATOR (Updated with all types)
+--------------------------------------------------------- */
 function addFeatureRow(feat) {
   const featureList = document.getElementById("featureList");
   const row = document.createElement("div");
   row.className = "feature-row";
+  
+  // Map your Python types to readable labels
+  const options = [
+    { val: "responsibility", label: "Responsibility" },
+    { val: "hard_skill", label: "Hard Skill" },
+    { val: "soft_skill", label: "Soft Skill" },
+    { val: "experience", label: "Experience" },
+    { val: "qualification", label: "Qualification" },
+    { val: "requirement", label: "Requirement" },
+    { val: "nice_to_have", label: "Nice to Have" },
+    { val: "employer_mission", label: "Mission" },
+    { val: "employer_culture", label: "Culture" },
+    { val: "role_value", label: "Role Value" },
+    { val: "benefit", label: "Benefit" },
+    { val: "other", label: "Other" }
+  ];
+
+  // Generate the <option> tags dynamically
+  // If the feature type isn't in our list (e.g. legacy data), default to 'requirement'
+  const currentType = feat.type || "requirement";
+  
+  const optionsHtml = options.map(opt => {
+    const isSelected = opt.val === currentType ? "selected" : "";
+    return `<option value="${opt.val}" ${isSelected}>${opt.label}</option>`;
+  }).join("");
+
   row.innerHTML = `
     <select class="feat-type">
-      <option value="hard_skill" ${feat.type === 'hard_skill' ? 'selected' : ''}>Skill</option>
-      <option value="responsibility" ${feat.type === 'responsibility' ? 'selected' : ''}>Resp.</option>
-      <option value="qualification" ${feat.type === 'qualification' ? 'selected' : ''}>Qual.</option>
-      <option value="benefit" ${feat.type === 'benefit' ? 'selected' : ''}>Ben.</option>
+      ${optionsHtml}
     </select>
     <input type="text" class="feat-desc" value="${(feat.description || '').replace(/"/g, '&quot;')}" />
     <button class="remove-feat">×</button>

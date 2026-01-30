@@ -77,26 +77,20 @@ function scrapeAndSend() {
     return;
   }
 
-  // Validate
   if (!scraped.description && !scraped.title) {
-    console.warn("Scraper found no data.");
+    alert("Scraper found no data. Make sure a job is open!");
     return;
   }
 
-  // 1. Send to Background Script
+  // Send to Background Script
   try {
-    chrome.runtime.sendMessage({ 
-      type: "JOB_SCRAPED", 
-      data: scraped 
-    });
+    console.log("Sending scraped data to background:", scraped);
+    chrome.runtime.sendMessage({ type: "JOB_SCRAPED", data: scraped });
+    showOverlay();
   } catch (error) {
     console.error("Extension connection lost:", error);
     alert("Please refresh the page to reconnect the extension.");
-    return;
   }
-
-  // 2. Show Visual Feedback
-  showOverlay();
 }
 
 /* ------------------------------------------------
@@ -150,5 +144,5 @@ if (location.hostname.includes("indeed.com")) {
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
-// Immediately run when injected
+// // Immediately run when injected
 scrapeAndSend();

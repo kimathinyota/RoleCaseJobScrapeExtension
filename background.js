@@ -1,7 +1,7 @@
 // background.js
 
 // CONFIGURATION
-const API_BASE = "http://localhost:8000"; // Adjust to your running server
+const API_BASE = "http://localhost:8000/api"; // Adjust to your running server
 const PARSE_ENDPOINT = `${API_BASE}/job/parse`; // Adjust if your route prefix differs
 
 // 1. Listen for "SCRAPE" messages from scrape.js
@@ -48,6 +48,8 @@ async function parseJob(job) {
     }
 
     const jsonResult = await response.json();
+
+    console.log("API Parse Result:", jsonResult);
 
     // Merge API result with our job
     // We trust Llama's extracted fields, but fallback to scraper meta if null
