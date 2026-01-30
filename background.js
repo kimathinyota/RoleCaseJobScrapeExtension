@@ -1,8 +1,15 @@
 // background.js
 
 // CONFIGURATION
-const API_BASE = "http://localhost:8000/api"; // Adjust to your running server
-const PARSE_ENDPOINT = `${API_BASE}/job/parse`; // Adjust if your route prefix differs
+const API_BASE = "http://localhost:8000/api"; 
+const PARSE_ENDPOINT = `${API_BASE}/job/parse`; 
+
+// --- HELPER: Merge Logic (Model vs Scraper) ---
+// Returns apiVal if it exists, otherwise falls back to scrapeVal
+function pick(apiVal, scrapeVal) {
+  if (apiVal && String(apiVal).trim().length > 0) return apiVal;
+  return scrapeVal;
+}
 
 // 1. Listen for "SCRAPE" messages from scrape.js
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -18,9 +25,9 @@ async function handleNewScrape(scrapedData) {
 
   const newJob = {
     id: jobId,
-    status: "parsing", // parsing | review | error
-    original_text: scrapedData.description, // For the parser
-    scraped_meta: scrapedData, // Title, URL, etc. from the scraper
+    status: "parsing", 
+    original_text: scrapedData.description, 
+    scraped_meta: scrapedData, 
     parsed_result: null,
     created_at: timestamp,
     error_msg: null
@@ -29,14 +36,13 @@ async function handleNewScrape(scrapedData) {
   // A. Save to storage immediately
   await saveJobToStorage(newJob);
 
-  // B. Trigger the API call (Fire & Forget logic handled here)
+  // B. Trigger the API call
   parseJob(newJob);
 }
 
 // 3. The API Worker
 async function parseJob(job) {
   try {
-    // Prepare payload for your Pydantic model: JobTextRequest(text=...)
     const response = await fetch(PARSE_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -48,16 +54,24 @@ async function parseJob(job) {
     }
 
     const jsonResult = await response.json();
-
     console.log("API Parse Result:", jsonResult);
 
-    // Merge API result with our job
-    // We trust Llama's extracted fields, but fallback to scraper meta if null
+    // Merge API result with our job using the 'pick' helper
     job.parsed_result = {
-      title: jsonResult.title || job.scraped_meta.title,
-      company: jsonResult.company || job.scraped_meta.company,
-      location: jsonResult.location || job.scraped_meta.location,
-      salary_range: jsonResult.salary_range,
+      title: pick(jsonResult.title, job.scraped_meta.title),
+      company: pick(jsonResult.company, job.scraped_meta.company),
+      location: pick(jsonResult.location, job.scraped_meta.location),
+      salary_range: pick(jsonResult.salary_range, job.scraped_meta.salary),
+      
+      // DATES: Ensure these are copied over from scraper
+      date_posted: pick(jsonResult.date_posted, job.scraped_meta.date_posted),
+      date_closing: pick(jsonResult.date_closing, job.scraped_meta.date_closing),
+      date_extracted: pick(jsonResult.date_extracted, job.scraped_meta.date_extracted),
+
+      // DESCRIPTIONS: Pass these through for the platform
+      description: job.scraped_meta.description,
+      displayed_description: job.scraped_meta.displayed_description,
+
       features: jsonResult.features || [],
       job_url: job.scraped_meta.url,
       _meta: jsonResult._meta

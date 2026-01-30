@@ -68,7 +68,7 @@ function renderQueue() {
           </div>
           <div class="status-text">
             <span>Analyzing...</span>
-            <span>~${Math.ceil((estimatedTotal - elapsed)/1000)}s left</span>
+            <span>~${Math.ceil(Math.max(0, (estimatedTotal - elapsed)/1000))}s left</span>
           </div>
         `;
         card.classList.add("parsing");
@@ -110,22 +110,42 @@ function renderQueue() {
    2. EDITOR & SAVING
 ------------------------------------------------ */
 function openEditor(job) {
+  console.log("Opening editor for job:", job);
   document.getElementById("queueView").classList.add("hidden");
   document.getElementById("editorView").classList.remove("hidden");
   document.getElementById("scrapeBtn").classList.add("hidden"); // Hide big CTA
+  document.querySelector(".header-actions").classList.add("hidden"); // Hide clear button
   
   const data = job.parsed_result;
-  document.getElementById("editTitle").value = data.title || "";
-  document.getElementById("editCompany").value = data.company || "";
-  document.getElementById("editLocation").value = data.location || "";
-  document.getElementById("editSalary").value = data.salary_range || "";
-  document.getElementById("editUrl").value = data.job_url || "";
   
+  // Helpers
+  const safeVal = (v) => v || "";
+  const safeDate = (d) => d ? d.split('T')[0] : ""; // Ensure YYYY-MM-DD for date inputs
+
+  // 1. Text Fields
+  document.getElementById("editTitle").value = safeVal(data.title);
+  document.getElementById("editCompany").value = safeVal(data.company);
+  document.getElementById("editLocation").value = safeVal(data.location);
+  document.getElementById("editSalary").value = safeVal(data.salary_range);
+  
+  // 2. URL Handling
+  const urlField = document.getElementById("editUrl");
+  const visitBtn = document.getElementById("visitUrlBtn");
+  urlField.value = safeVal(data.job_url);
+  // Update the 'Visit' button href to match the current URL
+  if(visitBtn) visitBtn.href = safeVal(data.job_url);
+
+  // 3. Date Fields
+  document.getElementById("editDatePosted").value = safeDate(data.date_posted);
+  document.getElementById("editDateClosing").value = safeDate(data.date_closing);
+  document.getElementById("editDateExtracted").value = safeDate(data.date_extracted);
+  
+  // 4. Render Features
   const list = document.getElementById("featureList");
   list.innerHTML = "";
   if (data.features) data.features.forEach(addFeatureRow);
 
-  // Save Handler
+  // 5. Save Handler
   const saveBtn = document.getElementById("saveJobBtn");
   const newBtn = saveBtn.cloneNode(true);
   saveBtn.parentNode.replaceChild(newBtn, saveBtn);
@@ -134,7 +154,8 @@ function openEditor(job) {
     newBtn.textContent = "Saving...";
     newBtn.disabled = true;
     try {
-      await sendToBackend(job.id);
+      // Pass the entire job object so we can access descriptions
+      await sendToBackend(job);
       newBtn.textContent = "Saved!";
       setTimeout(closeEditor, 800);
     } catch (e) {
@@ -149,6 +170,7 @@ function closeEditor() {
   document.getElementById("editorView").classList.add("hidden");
   document.getElementById("queueView").classList.remove("hidden");
   document.getElementById("scrapeBtn").classList.remove("hidden");
+  document.querySelector(".header-actions").classList.remove("hidden");
 }
 
 /* ------------------------------------------------
@@ -158,14 +180,14 @@ function addFeatureRow(feat) {
   const row = document.createElement("div");
   row.className = "feature-row";
   
-  // Clean, consolidated types
+  // Clean, consolidated types matching your Pydantic model
   const typeOptions = `
     <option value="responsibility">Responsibility</option>
     <option value="hard_skill">Hard Skill</option>
     <option value="soft_skill">Soft Skill</option>
     <option value="qualification">Qualification</option>
     <option value="requirement">Requirement</option>
-    <option value="perk">Perk</option>
+    <option value="benefit">Benefit</option>
     <option value="employer_mission">Mission</option>
     <option value="employer_culture">Culture</option>
     <option value="other">Other</option>
@@ -203,14 +225,30 @@ function clearQueue() {
   if(confirm("Clear history?")) chrome.storage.local.set({ job_queue: {} });
 }
 
-async function sendToBackend(jobId) {
-  // Construct Payload
+/* ------------------------------------------------
+   4. API COMMUNICATION
+------------------------------------------------ */
+async function sendToBackend(job) {
+  // We use the original job data to get the descriptions
+  // because we don't edit those in the UI, but we must pass them along.
+  const originalData = job.parsed_result;
+
   const payload = {
     title: document.getElementById("editTitle").value,
     company: document.getElementById("editCompany").value,
     location: document.getElementById("editLocation").value,
     salary_range: document.getElementById("editSalary").value,
     job_url: document.getElementById("editUrl").value,
+    
+    // Dates
+    date_posted: document.getElementById("editDatePosted").value || null,
+    date_closing: document.getElementById("editDateClosing").value || null,
+    date_extracted: document.getElementById("editDateExtracted").value,
+    
+    // Pass through descriptions (Hidden from UI but required)
+    description: originalData.description,
+    displayed_description: originalData.displayed_description,
+
     features: []
   };
 
@@ -236,12 +274,11 @@ async function sendToBackend(jobId) {
     const queue = result.job_queue;
     const stats = result.stats || { count: 0, avg_time_sec: 60 };
 
-    if (queue[jobId]) {
-      queue[jobId].status = "saved";
+    if (queue[job.id]) {
+      queue[job.id].status = "saved";
       
       // Update Learning Stats (if we have time data)
-      // This is optional but nice to have for future accuracy
-      const meta = queue[jobId].parsed_result?._meta;
+      const meta = queue[job.id].parsed_result?._meta;
       if (meta && meta.generation_time_sec) {
         const n = stats.count;
         const newAvg = ((stats.avg_time_sec * n) + meta.generation_time_sec) / (n + 1);

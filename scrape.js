@@ -186,6 +186,8 @@ function scrapePage() {
     }
   }
 
+  data.displayed_description = data.json_ld_description || data.description;
+
   // 4. Fill gaps in metadata
   if (!data.title && domData.title) data.title = domData.title;
   if (!data.company && domData.company) data.company = domData.company;
@@ -193,6 +195,8 @@ function scrapePage() {
 
   // 5. Trim for API limits
   if (data.description.length > 25000) data.description = data.description.substring(0, 25000);
+  // displayed_description might be HTML, so we leave it slightly longer or same
+  if (data.displayed_description.length > 25000) data.displayed_description = data.displayed_description.substring(0, 25000);
 
   return data;
 }

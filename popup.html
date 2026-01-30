@@ -43,6 +43,18 @@
     </div>
     
     <div class="editor-scroll">
+  
+      <div class="form-group" style="position: relative;">
+        <label>Job URL</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="editUrl">
+          <a id="visitUrlBtn" href="#" target="_blank" title="Open Job Page"
+            style="display:flex; align-items:center; justify-content:center; padding:8px; background:#edf2f7; border-radius:4px; color:#4a5568;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+          </a>
+        </div>
+      </div>
+
       <div class="input-group">
         <label>Company</label>
         <input type="text" id="editCompany">
@@ -51,6 +63,7 @@
         <label>Job Title</label>
         <input type="text" id="editTitle">
       </div>
+      
       <div class="row">
         <div class="input-group">
           <label>Location</label>
@@ -61,7 +74,23 @@
           <input type="text" id="editSalary">
         </div>
       </div>
-      <input type="hidden" id="editUrl">
+
+      <div class="divider"></div>
+
+      <div class="row">
+        <div class="input-group">
+          <label>Posted</label>
+          <input type="date" id="editDatePosted">
+        </div>
+        <div class="input-group">
+          <label>Closing</label>
+          <input type="date" id="editDateClosing">
+        </div>
+      </div>
+      <div class="input-group">
+        <label>Extracted On</label>
+        <input type="date" id="editDateExtracted" disabled style="background:#f7fafc; color:#718096">
+      </div>
 
       <div class="divider"></div>
       
@@ -70,9 +99,9 @@
         <button id="addFeatureBtn" class="small-btn">+ Add</button>
       </div>
       <div id="featureList"></div>
-    </div>
+  </div>
 
-    <div class="editor-footer">
+  <div class="editor-footer">
       <button id="saveJobBtn" class="save-button">Save to RoleCase</button>
     </div>
   </div>
