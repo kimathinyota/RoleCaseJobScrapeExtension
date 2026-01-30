@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Job Scraper Pro 2025",
+  "name": "RoleCase Job Importer",
   "version": "2.2",
   "description": "On-demand parsing for job applications.",
   "permissions": ["activeTab", "scripting", "storage"],

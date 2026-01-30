@@ -1,225 +1,210 @@
-const API_UPSERT = "http://localhost:8000/api/job/upsert"; // Adjust to your backend URL
+const API_UPSERT = "http://localhost:8000/api/job/upsert"; 
+
+// --- ROLLING AVERAGE CONFIG ---
+const DEFAULT_AVG_TIME_MS = 60000; // Default 60 seconds
+let intervalId = null;
 
 document.addEventListener("DOMContentLoaded", () => {
   renderQueue();
   
-  // 1. LISTEN FOR STORAGE UPDATES
-  // This automatically refreshes the UI when the background script
-  // receives the parsed data from your API.
+  // Storage listener for realtime updates
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && changes.job_queue) {
       renderQueue();
     }
   });
 
-  // 2. SCRAPE BUTTON ACTION (The "Trigger")
-// 2. SCRAPE BUTTON ACTION (Updated)
-  document.getElementById("scrapeBtn").addEventListener("click", async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    
-    if (tab) {
-      try {
-        // Try sending a message first (cleanest way)
-        await chrome.tabs.sendMessage(tab.id, { action: "TRIGGER_SCRAPE" });
-      } catch (e) {
-        // If message fails, the script might not be injected yet. Inject it now.
-        console.log("Script not ready, injecting...", e);
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          files: ["scrape.js"]
-        });
-        
-        // Wait 100ms for script to load, then trigger
-        setTimeout(() => {
-          chrome.tabs.sendMessage(tab.id, { action: "TRIGGER_SCRAPE" });
-        }, 100);
-      }
-    }
-  });
-
-  // Clear Queue Action
-  document.getElementById("clearBtn").addEventListener("click", () => {
-    if(confirm("Clear all jobs from queue?")) {
-      chrome.storage.local.set({ job_queue: {} });
-    }
-  });
-  
-  // Add new feature row manually
-  document.getElementById("addFeatureBtn").addEventListener("click", () => {
-    addFeatureRow({ type: 'responsibility', description: '' });
-  });
+  // Buttons
+  document.getElementById("scrapeBtn").addEventListener("click", triggerScrape);
+  document.getElementById("clearBtn").addEventListener("click", clearQueue);
+  document.getElementById("addFeatureBtn").addEventListener("click", () => addFeatureRow({}));
+  document.getElementById("backBtn").addEventListener("click", closeEditor);
 });
 
-/* ---------------------------------------------------------
-   RENDER LOGIC (INBOX VIEW)
---------------------------------------------------------- */
+/* ------------------------------------------------
+   1. QUEUE RENDERING & PROGRESS LOGIC
+------------------------------------------------ */
 function renderQueue() {
-  const container = document.getElementById("queueContainer");
+  const list = document.getElementById("queueList");
   
-  chrome.storage.local.get(["job_queue"], (result) => {
+  chrome.storage.local.get(["job_queue", "stats"], (result) => {
     const queue = result.job_queue || {};
-    // Sort by newest first
+    const stats = result.stats || { avg_time_sec: 60 }; // Default from storage
     const jobs = Object.values(queue).sort((a, b) => b.created_at - a.created_at);
 
-    container.innerHTML = "";
+    list.innerHTML = "";
     
+    // Clean up old interval
+    if (intervalId) clearInterval(intervalId);
+    let parsingJobsExist = false;
+
     if (jobs.length === 0) {
-      container.innerHTML = `
-        <div class="empty-state">
-          No jobs in queue.<br>Open a job description and click Scrape!
-        </div>`;
+      list.innerHTML = `<div class="empty-state">No jobs yet.<br>Click 'Import Job' to start.</div>`;
       return;
     }
 
     jobs.forEach(job => {
       const card = document.createElement("div");
+      card.className = "job-card";
       
-      // Determine styling based on status
-      let statusClass = job.status; 
-      // Simplify status for CSS
-      if(job.status === 'parsing') statusClass = 'parsing';
-      if(job.status === 'review') statusClass = 'review';
+      const company = job.parsed_result?.company || job.scraped_meta?.company || "Parsing Company...";
+      const title = job.parsed_result?.title || job.scraped_meta?.title || "Parsing Title...";
+      const timeStr = new Date(job.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+
+      // Status Logic
+      let statusHtml = "";
       
-      card.className = `job-card ${statusClass}`;
-      
-      let statusLabel = "";
-      if (job.status === "parsing") statusLabel = "⚡ Parsing...";
-      if (job.status === "review") statusLabel = "✅ Ready to Review";
-      if (job.status === "error") statusLabel = "❌ Error";
-      if (job.status === "saved") statusLabel = "💾 Saved";
-
-      const company = job.parsed_result?.company || job.scraped_meta?.company || "Unknown Company";
-      const title = job.parsed_result?.title || job.scraped_meta?.title || "No Title";
-
-      card.innerHTML = `
-        <div class="card-header">
-          <span>${company}</span>
-          <span style="font-size:10px; opacity:0.8">${statusLabel}</span>
-        </div>
-        <div class="card-title">${title}</div>
-        <div class="card-time">${new Date(job.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
-      `;
-
-      // Click handler: Only open editor if ready
-      if (job.status === "review") {
+      if (job.status === "parsing") {
+        parsingJobsExist = true;
+        // Calculate Progress based on Rolling Average
+        const now = Date.now();
+        const elapsed = now - job.created_at;
+        const estimatedTotal = stats.avg_time_sec * 1000;
+        let percent = Math.min((elapsed / estimatedTotal) * 100, 95); // Cap at 95% until done
+        
+        statusHtml = `
+          <div class="progress-track">
+            <div class="progress-fill" style="width: ${percent}%"></div>
+          </div>
+          <div class="status-text">
+            <span>Analyzing...</span>
+            <span>~${Math.ceil((estimatedTotal - elapsed)/1000)}s left</span>
+          </div>
+        `;
+        card.classList.add("parsing");
+      } 
+      else if (job.status === "review") {
+        statusHtml = `<div class="status-text" style="color:var(--primary)">✅ Ready to Review</div>`;
         card.addEventListener("click", () => openEditor(job));
-      } else if (job.status === "error") {
-        card.addEventListener("click", () => alert("Error: " + job.error_msg));
+      }
+      else if (job.status === "saved") {
+        statusHtml = `<div class="status-text" style="color:var(--success)">💾 Saved to RoleCase</div>`;
+        card.classList.add("status-saved");
+      }
+      else if (job.status === "error") {
+        statusHtml = `<div class="status-text" style="color:var(--error)">❌ Error: ${job.error_msg || "Failed"}</div>`;
       }
 
-      container.appendChild(card);
+      card.innerHTML = `
+        <div class="card-top">
+          <span class="card-company">${company}</span>
+          <span class="card-time">${timeStr}</span>
+        </div>
+        <div class="card-title">${title}</div>
+        ${statusHtml}
+      `;
+      list.appendChild(card);
     });
+
+    // If any job is parsing, refresh UI every second to animate progress bar
+    if (parsingJobsExist) {
+      intervalId = setInterval(() => {
+        // We only re-render the bars, but full re-render is easier for MVP
+        renderQueue();
+      }, 1000);
+    }
   });
 }
 
-/* ---------------------------------------------------------
-   EDITOR LOGIC (FORM VIEW)
---------------------------------------------------------- */
+/* ------------------------------------------------
+   2. EDITOR & SAVING
+------------------------------------------------ */
 function openEditor(job) {
-  document.getElementById("queueContainer").classList.add("hidden");
-  document.getElementById("editorContainer").classList.remove("hidden");
-  // Hide main header buttons in edit mode
-  document.querySelector(".header-top").classList.add("hidden");
-  document.getElementById("scrapeBtn").classList.add("hidden");
+  document.getElementById("queueView").classList.add("hidden");
+  document.getElementById("editorView").classList.remove("hidden");
+  document.getElementById("scrapeBtn").classList.add("hidden"); // Hide big CTA
   
   const data = job.parsed_result;
-  
-  // Populate Fields
   document.getElementById("editTitle").value = data.title || "";
   document.getElementById("editCompany").value = data.company || "";
   document.getElementById("editLocation").value = data.location || "";
   document.getElementById("editSalary").value = data.salary_range || "";
   document.getElementById("editUrl").value = data.job_url || "";
   
-  // Render Features
-  const featureList = document.getElementById("featureList");
-  featureList.innerHTML = "";
-  
-  if (data.features && data.features.length > 0) {
-    data.features.forEach(feat => addFeatureRow(feat));
-  }
+  const list = document.getElementById("featureList");
+  list.innerHTML = "";
+  if (data.features) data.features.forEach(addFeatureRow);
 
-  // --- SAVE HANDLER ---
+  // Save Handler
   const saveBtn = document.getElementById("saveJobBtn");
-  // Clone to remove old event listeners
-  const newSaveBtn = saveBtn.cloneNode(true);
-  saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
+  const newBtn = saveBtn.cloneNode(true);
+  saveBtn.parentNode.replaceChild(newBtn, saveBtn);
   
-  newSaveBtn.onclick = async () => {
-    newSaveBtn.textContent = "Saving...";
-    newSaveBtn.disabled = true;
+  newBtn.onclick = async () => {
+    newBtn.textContent = "Saving...";
+    newBtn.disabled = true;
     try {
       await sendToBackend(job.id);
-      newSaveBtn.textContent = "Saved!";
-      setTimeout(closeEditor, 1000);
+      newBtn.textContent = "Saved!";
+      setTimeout(closeEditor, 800);
     } catch (e) {
-      alert("Error saving: " + e.message);
-      newSaveBtn.textContent = "Save to Platform";
-      newSaveBtn.disabled = false;
+      alert("Error: " + e.message);
+      newBtn.textContent = "Save to RoleCase";
+      newBtn.disabled = false;
     }
   };
-
-  // --- BACK HANDLER ---
-  document.getElementById("backBtn").onclick = closeEditor;
 }
 
 function closeEditor() {
-  document.getElementById("editorContainer").classList.add("hidden");
-  document.getElementById("queueContainer").classList.remove("hidden");
-  document.querySelector(".header-top").classList.remove("hidden");
+  document.getElementById("editorView").classList.add("hidden");
+  document.getElementById("queueView").classList.remove("hidden");
   document.getElementById("scrapeBtn").classList.remove("hidden");
 }
 
-/* ---------------------------------------------------------
-   HELPER: FEATURE ROW GENERATOR (Updated with all types)
---------------------------------------------------------- */
+/* ------------------------------------------------
+   3. HELPERS
+------------------------------------------------ */
 function addFeatureRow(feat) {
-  const featureList = document.getElementById("featureList");
   const row = document.createElement("div");
   row.className = "feature-row";
   
-  // Map your Python types to readable labels
-  const options = [
-    { val: "responsibility", label: "Responsibility" },
-    { val: "hard_skill", label: "Hard Skill" },
-    { val: "soft_skill", label: "Soft Skill" },
-    { val: "experience", label: "Experience" },
-    { val: "qualification", label: "Qualification" },
-    { val: "requirement", label: "Requirement" },
-    { val: "nice_to_have", label: "Nice to Have" },
-    { val: "employer_mission", label: "Mission" },
-    { val: "employer_culture", label: "Culture" },
-    { val: "role_value", label: "Role Value" },
-    { val: "benefit", label: "Benefit" },
-    { val: "other", label: "Other" }
-  ];
-
-  // Generate the <option> tags dynamically
-  // If the feature type isn't in our list (e.g. legacy data), default to 'requirement'
-  const currentType = feat.type || "requirement";
-  
-  const optionsHtml = options.map(opt => {
-    const isSelected = opt.val === currentType ? "selected" : "";
-    return `<option value="${opt.val}" ${isSelected}>${opt.label}</option>`;
-  }).join("");
+  // Clean, consolidated types
+  const typeOptions = `
+    <option value="responsibility">Responsibility</option>
+    <option value="hard_skill">Hard Skill</option>
+    <option value="soft_skill">Soft Skill</option>
+    <option value="qualification">Qualification</option>
+    <option value="requirement">Requirement</option>
+    <option value="perk">Perk</option>
+    <option value="employer_mission">Mission</option>
+    <option value="employer_culture">Culture</option>
+    <option value="other">Other</option>
+  `;
 
   row.innerHTML = `
-    <select class="feat-type">
-      ${optionsHtml}
-    </select>
+    <select class="feat-type">${typeOptions}</select>
     <input type="text" class="feat-desc" value="${(feat.description || '').replace(/"/g, '&quot;')}" />
     <button class="remove-feat">×</button>
   `;
+
+  const select = row.querySelector("select");
+  // Auto-select the right type
+  if (feat.type) select.value = feat.type;
   
-  row.querySelector(".remove-feat").addEventListener("click", () => row.remove());
-  featureList.appendChild(row);
+  row.querySelector(".remove-feat").onclick = () => row.remove();
+  document.getElementById("featureList").appendChild(row);
 }
 
-/* ---------------------------------------------------------
-   API COMMUNICATION
---------------------------------------------------------- */
+async function triggerScrape() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab) return;
+
+  try {
+    await chrome.tabs.sendMessage(tab.id, { action: "TRIGGER_SCRAPE" });
+  } catch (e) {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["scrape.js"] });
+    setTimeout(() => {
+      chrome.tabs.sendMessage(tab.id, { action: "TRIGGER_SCRAPE" });
+    }, 100);
+  }
+}
+
+function clearQueue() {
+  if(confirm("Clear history?")) chrome.storage.local.set({ job_queue: {} });
+}
+
 async function sendToBackend(jobId) {
-  // 1. Construct Payload matching JobUpsertPayload in models.py
+  // Construct Payload
   const payload = {
     title: document.getElementById("editTitle").value,
     company: document.getElementById("editCompany").value,
@@ -230,30 +215,41 @@ async function sendToBackend(jobId) {
   };
 
   document.querySelectorAll(".feature-row").forEach(row => {
-    const desc = row.querySelector(".feat-desc").value.trim();
-    if (desc) {
-      payload.features.push({
-        type: row.querySelector(".feat-type").value,
-        description: desc
-      });
-    }
+    const val = row.querySelector(".feat-desc").value.trim();
+    if(val) payload.features.push({ 
+      type: row.querySelector("select").value, 
+      description: val 
+    });
   });
 
-  // 2. Send to /upsert
+  // Post to API
   const res = await fetch(API_UPSERT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+    method: "POST", 
+    headers: {"Content-Type": "application/json"},
     body: JSON.stringify(payload)
   });
 
-  if (!res.ok) throw new Error("Failed to save to platform");
+  if (!res.ok) throw new Error("API Error");
 
-  // 3. Mark as saved locally
-  chrome.storage.local.get(["job_queue"], (result) => {
+  // Update Status in Local Storage
+  chrome.storage.local.get(["job_queue", "stats"], (result) => {
     const queue = result.job_queue;
+    const stats = result.stats || { count: 0, avg_time_sec: 60 };
+
     if (queue[jobId]) {
       queue[jobId].status = "saved";
-      chrome.storage.local.set({ job_queue: queue });
+      
+      // Update Learning Stats (if we have time data)
+      // This is optional but nice to have for future accuracy
+      const meta = queue[jobId].parsed_result?._meta;
+      if (meta && meta.generation_time_sec) {
+        const n = stats.count;
+        const newAvg = ((stats.avg_time_sec * n) + meta.generation_time_sec) / (n + 1);
+        stats.count++;
+        stats.avg_time_sec = newAvg;
+      }
+      
+      chrome.storage.local.set({ job_queue: queue, stats: stats });
     }
   });
 }

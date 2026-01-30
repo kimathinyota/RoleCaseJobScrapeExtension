@@ -59,7 +59,8 @@ async function parseJob(job) {
       location: jsonResult.location || job.scraped_meta.location,
       salary_range: jsonResult.salary_range,
       features: jsonResult.features || [],
-      job_url: job.scraped_meta.url
+      job_url: job.scraped_meta.url,
+      _meta: jsonResult._meta
     };
     
     job.status = "review";
