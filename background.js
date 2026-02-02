@@ -1,8 +1,33 @@
 // background.js
 
 // CONFIGURATION
-const API_BASE = "http://localhost:8000/api"; 
+// FIX 1: Use 127.0.0.1 instead of localhost to bypass Windows IPv6 issues
+const API_BASE = "http://127.0.0.1:8000/api"; 
 const PARSE_ENDPOINT = `${API_BASE}/job/parse`; 
+
+// --- KEEPALIVE MECHANISM ---
+// FIX 2: Prevent Chrome from killing the worker during long parsing (300s+)
+let lifelines = {};
+
+function keepAliveForJob(jobId) {
+  if (!lifelines[jobId]) {
+    // Connect a port to maintain activity
+    lifelines[jobId] = setInterval(() => {
+      chrome.runtime.getPlatformInfo(() => {
+        // Dummy call to reset the 30s timer
+        console.log(`[KeepAlive] Pinging for job ${jobId}`);
+      });
+    }, 20000); // Ping every 20 seconds
+  }
+}
+
+function releaseKeepAlive(jobId) {
+  if (lifelines[jobId]) {
+    clearInterval(lifelines[jobId]);
+    delete lifelines[jobId];
+    console.log(`[KeepAlive] Released for job ${jobId}`);
+  }
+}
 
 // --- HELPER: Merge Logic (Model vs Scraper) ---
 // Returns apiVal if it exists, otherwise falls back to scrapeVal
@@ -16,6 +41,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "JOB_SCRAPED") {
     handleNewScrape(message.data);
   }
+  // Important: Return true if you were asynchronous, though here we aren't sending a response back immediately
 });
 
 // 2. Core Logic: Add to Queue & Start Processing
@@ -36,18 +62,30 @@ async function handleNewScrape(scrapedData) {
   // A. Save to storage immediately
   await saveJobToStorage(newJob);
 
-  // B. Trigger the API call
+  // B. Start the heartbeat BEFORE the long fetch
+  keepAliveForJob(jobId);
+
+  // C. Trigger the API call
   parseJob(newJob);
 }
 
 // 3. The API Worker
 async function parseJob(job) {
   try {
+    console.log(`[API] Sending Job ${job.id} to ${PARSE_ENDPOINT}`);
+
+    // Set a long timeout signal so the fetch doesn't default-fail (Chrome default is often too short)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 Minute Timeout
+
     const response = await fetch(PARSE_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: job.original_text })
+      body: JSON.stringify({ text: job.original_text }),
+      signal: controller.signal
     });
+
+    clearTimeout(timeoutId); // Clear the safety timeout
 
     if (!response.ok) {
       throw new Error(`Server Error: ${response.status}`);
@@ -85,6 +123,9 @@ async function parseJob(job) {
     job.status = "error";
     job.error_msg = error.message;
     await saveJobToStorage(job);
+  } finally {
+    // STOP the heartbeat once the fetch finishes (success or fail)
+    releaseKeepAlive(job.id);
   }
 }
 
