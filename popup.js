@@ -1,11 +1,23 @@
-const API_UPSERT = "http://localhost:8000/api/job/upsert"; 
+const API_BASE = "http://localhost:8000/api";
+const API_UPSERT = `${API_BASE}/job/upsert`; 
 
 // --- ROLLING AVERAGE CONFIG ---
 const DEFAULT_AVG_TIME_MS = 60000; // Default 60 seconds
 let intervalId = null;
 
 document.addEventListener("DOMContentLoaded", () => {
-  renderQueue();
+  // 1. First, check if user is logged in
+  checkSession();
+
+  // Buttons
+  document.getElementById("loginBtn").addEventListener("click", handleLogin);
+  document.getElementById("logoutBtn").addEventListener("click", handleLogout);
+  
+  // App Buttons (Your original ones)
+  document.getElementById("scrapeBtn").addEventListener("click", triggerScrape);
+  document.getElementById("clearBtn").addEventListener("click", clearQueue);
+  document.getElementById("addFeatureBtn").addEventListener("click", () => addFeatureRow({}));
+  document.getElementById("backBtn").addEventListener("click", closeEditor);
   
   // Storage listener for realtime updates
   chrome.storage.onChanged.addListener((changes, area) => {
@@ -13,28 +25,73 @@ document.addEventListener("DOMContentLoaded", () => {
       renderQueue();
     }
   });
-
-  // Buttons
-  document.getElementById("scrapeBtn").addEventListener("click", triggerScrape);
-  document.getElementById("clearBtn").addEventListener("click", clearQueue);
-  document.getElementById("addFeatureBtn").addEventListener("click", () => addFeatureRow({}));
-  document.getElementById("backBtn").addEventListener("click", closeEditor);
 });
 
 /* ------------------------------------------------
-   1. QUEUE RENDERING & PROGRESS LOGIC
+   0. AUTHENTICATION LOGIC
+------------------------------------------------ */
+async function checkSession() {
+  try {
+    const res = await fetch(`${API_BASE}/auth/me`, { credentials: 'include' });
+    if (res.ok) {
+      showAppView();
+      renderQueue(); // Load data only when authed
+    } else {
+      showAuthView();
+    }
+  } catch (e) {
+    showAuthView();
+  }
+}
+
+function showAppView() {
+  document.getElementById("auth-view").style.display = "none";
+  document.getElementById("app-view").classList.remove("hidden");
+}
+
+function showAuthView() {
+  document.getElementById("auth-view").style.display = "flex";
+  document.getElementById("app-view").classList.add("hidden");
+}
+
+function handleLogin() {
+  // Open Backend Google Login
+  chrome.windows.create({
+    url: `${API_BASE}/auth/login/google`,
+    type: 'popup', width: 500, height: 600
+  });
+  
+  // Poll until cookie is set
+  const poll = setInterval(() => {
+    fetch(`${API_BASE}/auth/me`, { credentials: 'include' })
+      .then(res => {
+        if (res.ok) {
+          clearInterval(poll);
+          showAppView();
+          renderQueue();
+        }
+      }).catch(() => {});
+  }, 1000);
+}
+
+function handleLogout() {
+  fetch(`${API_BASE}/auth/logout`, { method: "POST", credentials: 'include' })
+    .then(() => showAuthView());
+}
+
+/* ------------------------------------------------
+   1. QUEUE RENDERING & PROGRESS LOGIC (Unchanged)
 ------------------------------------------------ */
 function renderQueue() {
   const list = document.getElementById("queueList");
   
   chrome.storage.local.get(["job_queue", "stats"], (result) => {
     const queue = result.job_queue || {};
-    const stats = result.stats || { avg_time_sec: 60 }; // Default from storage
+    const stats = result.stats || { avg_time_sec: 60 }; 
     const jobs = Object.values(queue).sort((a, b) => b.created_at - a.created_at);
 
     list.innerHTML = "";
     
-    // Clean up old interval
     if (intervalId) clearInterval(intervalId);
     let parsingJobsExist = false;
 
@@ -51,16 +108,14 @@ function renderQueue() {
       const title = job.parsed_result?.title || job.scraped_meta?.title || "Parsing Title...";
       const timeStr = new Date(job.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
 
-      // Status Logic
       let statusHtml = "";
       
       if (job.status === "parsing") {
         parsingJobsExist = true;
-        // Calculate Progress based on Rolling Average
         const now = Date.now();
         const elapsed = now - job.created_at;
         const estimatedTotal = stats.avg_time_sec * 1000;
-        let percent = Math.min((elapsed / estimatedTotal) * 100, 95); // Cap at 95% until done
+        let percent = Math.min((elapsed / estimatedTotal) * 100, 95); 
         
         statusHtml = `
           <div class="progress-track">
@@ -96,10 +151,8 @@ function renderQueue() {
       list.appendChild(card);
     });
 
-    // If any job is parsing, refresh UI every second to animate progress bar
     if (parsingJobsExist) {
       intervalId = setInterval(() => {
-        // We only re-render the bars, but full re-render is easier for MVP
         renderQueue();
       }, 1000);
     }
@@ -107,45 +160,36 @@ function renderQueue() {
 }
 
 /* ------------------------------------------------
-   2. EDITOR & SAVING
+   2. EDITOR & SAVING (Slight Mod for Auth)
 ------------------------------------------------ */
 function openEditor(job) {
-  console.log("Opening editor for job:", job);
   document.getElementById("queueView").classList.add("hidden");
   document.getElementById("editorView").classList.remove("hidden");
-  document.getElementById("scrapeBtn").classList.add("hidden"); // Hide big CTA
-  document.querySelector(".header-actions").classList.add("hidden"); // Hide clear button
+  document.getElementById("scrapeBtn").classList.add("hidden"); 
+  document.querySelector(".header-actions").classList.add("hidden"); 
   
   const data = job.parsed_result;
-  
-  // Helpers
   const safeVal = (v) => v || "";
-  const safeDate = (d) => d ? d.split('T')[0] : ""; // Ensure YYYY-MM-DD for date inputs
+  const safeDate = (d) => d ? d.split('T')[0] : ""; 
 
-  // 1. Text Fields
   document.getElementById("editTitle").value = safeVal(data.title);
   document.getElementById("editCompany").value = safeVal(data.company);
   document.getElementById("editLocation").value = safeVal(data.location);
   document.getElementById("editSalary").value = safeVal(data.salary_range);
   
-  // 2. URL Handling
   const urlField = document.getElementById("editUrl");
   const visitBtn = document.getElementById("visitUrlBtn");
   urlField.value = safeVal(data.job_url);
-  // Update the 'Visit' button href to match the current URL
   if(visitBtn) visitBtn.href = safeVal(data.job_url);
 
-  // 3. Date Fields
   document.getElementById("editDatePosted").value = safeDate(data.date_posted);
   document.getElementById("editDateClosing").value = safeDate(data.date_closing);
   document.getElementById("editDateExtracted").value = safeDate(data.date_extracted);
   
-  // 4. Render Features
   const list = document.getElementById("featureList");
   list.innerHTML = "";
   if (data.features) data.features.forEach(addFeatureRow);
 
-  // 5. Save Handler
   const saveBtn = document.getElementById("saveJobBtn");
   const newBtn = saveBtn.cloneNode(true);
   saveBtn.parentNode.replaceChild(newBtn, saveBtn);
@@ -154,12 +198,11 @@ function openEditor(job) {
     newBtn.textContent = "Saving...";
     newBtn.disabled = true;
     try {
-      // Pass the entire job object so we can access descriptions
       await sendToBackend(job);
       newBtn.textContent = "Saved!";
       setTimeout(closeEditor, 800);
     } catch (e) {
-      alert("Error: " + e.message);
+      alert("Error saving: " + e.message);
       newBtn.textContent = "Save to RoleCase";
       newBtn.disabled = false;
     }
@@ -174,13 +217,12 @@ function closeEditor() {
 }
 
 /* ------------------------------------------------
-   3. HELPERS
+   3. HELPERS (Unchanged)
 ------------------------------------------------ */
 function addFeatureRow(feat) {
   const row = document.createElement("div");
   row.className = "feature-row";
   
-  // Clean, consolidated types matching your Pydantic model
   const typeOptions = `
     <option value="responsibility">Responsibility</option>
     <option value="hard_skill">Hard Skill</option>
@@ -200,7 +242,6 @@ function addFeatureRow(feat) {
   `;
 
   const select = row.querySelector("select");
-  // Auto-select the right type
   if (feat.type) select.value = feat.type;
   
   row.querySelector(".remove-feat").onclick = () => row.remove();
@@ -226,11 +267,9 @@ function clearQueue() {
 }
 
 /* ------------------------------------------------
-   4. API COMMUNICATION
+   4. API COMMUNICATION (UPDATED)
 ------------------------------------------------ */
 async function sendToBackend(job) {
-  // We use the original job data to get the descriptions
-  // because we don't edit those in the UI, but we must pass them along.
   const originalData = job.parsed_result;
 
   const payload = {
@@ -240,12 +279,10 @@ async function sendToBackend(job) {
     salary_range: document.getElementById("editSalary").value,
     job_url: document.getElementById("editUrl").value,
     
-    // Dates
     date_posted: document.getElementById("editDatePosted").value || null,
     date_closing: document.getElementById("editDateClosing").value || null,
     date_extracted: document.getElementById("editDateExtracted").value,
     
-    // Pass through descriptions (Hidden from UI but required)
     description: originalData.description,
     displayed_description: originalData.displayed_description,
 
@@ -260,14 +297,18 @@ async function sendToBackend(job) {
     });
   });
 
-  // Post to API
+  // Post to API (Updated to include Cookie)
   const res = await fetch(API_UPSERT, {
     method: "POST", 
     headers: {"Content-Type": "application/json"},
+    credentials: "include", // <--- CRITICAL FOR AUTH
     body: JSON.stringify(payload)
   });
 
-  if (!res.ok) throw new Error("API Error");
+  if (!res.ok) {
+    if (res.status === 401) throw new Error("Session expired. Please re-login.");
+    throw new Error("Backend Error " + res.status);
+  }
 
   // Update Status in Local Storage
   chrome.storage.local.get(["job_queue", "stats"], (result) => {
@@ -277,7 +318,6 @@ async function sendToBackend(job) {
     if (queue[job.id]) {
       queue[job.id].status = "saved";
       
-      // Update Learning Stats (if we have time data)
       const meta = queue[job.id].parsed_result?._meta;
       if (meta && meta.generation_time_sec) {
         const n = stats.count;
