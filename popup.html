@@ -8,101 +8,118 @@
 </head>
 <body>
 
-  <header class="app-header">
-    <div class="brand">
+  <div id="auth-view" class="view-container" style="display:none; justify-content:center; align-items:center; text-align:center; padding:20px;">
+    <div class="brand" style="margin-bottom:20px; transform: scale(1.5);">
       <div class="logo-circle">RC</div>
-      <h1>RoleCase</h1>
     </div>
-    <div class="header-actions">
-      <button id="clearBtn" class="icon-btn" title="Clear History">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="3 6 5 6 21 6"></polyline>
-          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-        </svg>
-      </button>
-    </div>
-  </header>
-
-  <div class="action-area">
-    <button id="scrapeBtn" class="cta-button">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-      <span>Import Job from Tab</span>
+    <h3 style="margin:0 0 8px 0; color:var(--text-main);">Welcome Back</h3>
+    <p style="margin:0 0 24px 0; font-size:13px; color:var(--text-muted);">Please sign in to save jobs.</p>
+    
+    <button id="loginBtn" class="cta-button" style="justify-content:center;">
+      Login with Google
     </button>
   </div>
 
-  <div id="queueView" class="view-container">
-    <div class="section-label">Recent Imports</div>
-    <div id="queueList" class="job-list">
+  <div id="app-view" class="hidden">
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo-circle">RC</div>
+        <h1>RoleCase</h1>
       </div>
-  </div>
+      <div class="header-actions">
+        <button id="logoutBtn" class="icon-btn" title="Logout">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+        </button>
+        <button id="clearBtn" class="icon-btn" title="Clear History">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+        </button>
+      </div>
+    </header>
 
-  <div id="editorView" class="view-container hidden">
-    <div class="editor-nav">
-      <button id="backBtn" class="text-btn">← Back</button>
-      <span class="editor-title">Review Details</span>
+    <div class="action-area">
+      <button id="scrapeBtn" class="cta-button">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        <span>Import Job from Tab</span>
+      </button>
     </div>
+
+    <div id="queueView" class="view-container">
+      <div class="section-label">Recent Imports</div>
+      <div id="queueList" class="job-list">
+        </div>
+    </div>
+
+    <div id="editorView" class="view-container hidden">
+      <div class="editor-nav">
+        <button id="backBtn" class="text-btn">← Back</button>
+        <span class="editor-title">Review Details</span>
+      </div>
+      
+      <div class="editor-scroll">
     
-    <div class="editor-scroll">
-  
-      <div class="form-group" style="position: relative;">
-        <label>Job URL</label>
-        <div style="display: flex; gap: 8px;">
-          <input type="text" id="editUrl">
-          <a id="visitUrlBtn" href="#" target="_blank" title="Open Job Page"
-            style="display:flex; align-items:center; justify-content:center; padding:8px; background:#edf2f7; border-radius:4px; color:#4a5568;">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-          </a>
+        <div class="form-group" style="position: relative;">
+          <label>Job URL</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="editUrl">
+            <a id="visitUrlBtn" href="#" target="_blank" title="Open Job Page"
+              style="display:flex; align-items:center; justify-content:center; padding:8px; background:#edf2f7; border-radius:4px; color:#4a5568;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+            </a>
+          </div>
         </div>
-      </div>
 
-      <div class="input-group">
-        <label>Company</label>
-        <input type="text" id="editCompany">
-      </div>
-      <div class="input-group">
-        <label>Job Title</label>
-        <input type="text" id="editTitle">
-      </div>
-      
-      <div class="row">
         <div class="input-group">
-          <label>Location</label>
-          <input type="text" id="editLocation">
+          <label>Company</label>
+          <input type="text" id="editCompany">
         </div>
         <div class="input-group">
-          <label>Salary</label>
-          <input type="text" id="editSalary">
+          <label>Job Title</label>
+          <input type="text" id="editTitle">
         </div>
-      </div>
+        
+        <div class="row">
+          <div class="input-group">
+            <label>Location</label>
+            <input type="text" id="editLocation">
+          </div>
+          <div class="input-group">
+            <label>Salary</label>
+            <input type="text" id="editSalary">
+          </div>
+        </div>
 
-      <div class="divider"></div>
+        <div class="divider"></div>
 
-      <div class="row">
+        <div class="row">
+          <div class="input-group">
+            <label>Posted</label>
+            <input type="date" id="editDatePosted">
+          </div>
+          <div class="input-group">
+            <label>Closing</label>
+            <input type="date" id="editDateClosing">
+          </div>
+        </div>
         <div class="input-group">
-          <label>Posted</label>
-          <input type="date" id="editDatePosted">
+          <label>Extracted On</label>
+          <input type="date" id="editDateExtracted" disabled style="background:#f7fafc; color:#718096">
         </div>
-        <div class="input-group">
-          <label>Closing</label>
-          <input type="date" id="editDateClosing">
+
+        <div class="divider"></div>
+        
+        <div class="features-header">
+          <label>Extracted Data</label>
+          <button id="addFeatureBtn" class="small-btn">+ Add</button>
         </div>
-      </div>
-      <div class="input-group">
-        <label>Extracted On</label>
-        <input type="date" id="editDateExtracted" disabled style="background:#f7fafc; color:#718096">
-      </div>
+        <div id="featureList"></div>
+    </div>
 
-      <div class="divider"></div>
-      
-      <div class="features-header">
-        <label>Extracted Data</label>
-        <button id="addFeatureBtn" class="small-btn">+ Add</button>
+    <div class="editor-footer">
+        <button id="saveJobBtn" class="save-button">Save to RoleCase</button>
       </div>
-      <div id="featureList"></div>
-  </div>
-
-  <div class="editor-footer">
-      <button id="saveJobBtn" class="save-button">Save to RoleCase</button>
     </div>
   </div>
 
